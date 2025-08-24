@@ -1,5 +1,4 @@
-
-// /api/files.js
+// /api/handleUpload.js
 const fetch = require('node-fetch');
 
 module.exports = async (req, res) => {
@@ -18,11 +17,7 @@ module.exports = async (req, res) => {
         });
 
         const data = await response.json();
-
-        if (!response.ok) {
-            return res.status(response.status).json(data);
-        }
-
+        if (!response.ok) return res.status(response.status).json(data);
         res.status(200).json(data);
     } catch (error) {
         res.status(500).json({ detail: error.message });

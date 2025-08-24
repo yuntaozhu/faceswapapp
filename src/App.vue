@@ -38,7 +38,6 @@ const isLoading = ref(false);
 const statusMessage = ref('');
 const resultUrl = ref('');
 
-// --- 事件处理 ---
 const handleSourceImageUpload = (event) => {
   sourceImageFile.value = event.target.files[0];
 };
@@ -47,17 +46,14 @@ const handleTargetVideoUpload = (event) => {
   targetVideoFile.value = event.target.files[0];
 };
 
-// --- 核心逻辑 ---
 const startFaceSwap = async () => {
   if (!sourceImageFile.value || !targetVideoFile.value) {
     statusMessage.value = '错误：请同时上传源图片和目标视频。';
     return;
   }
-
   isLoading.value = true;
   statusMessage.value = '准备开始...';
   resultUrl.value = '';
-
   try {
     statusMessage.value = '正在上传源图片...';
     const swapImageUrl = await uploadFile(sourceImageFile.value);
@@ -70,7 +66,6 @@ const startFaceSwap = async () => {
 
     statusMessage.value = '任务已创建，正在处理中...';
     await pollPredictionStatus(prediction);
-
   } catch (error) {
     console.error(error);
     statusMessage.value = `发生错误: ${error.message}`;
@@ -79,12 +74,8 @@ const startFaceSwap = async () => {
   }
 };
 
-// --- API 交互函数 ---
-
-// 步骤 1 & 2: 获取上传URL，然后直接上传文件
 async function uploadFile(file) {
-  // 1a. 通过我们的后端安全地获取上传URL
-  const getUrlResponse = await fetch('/api/files', {
+  const getUrlResponse = await fetch('/api/handleUpload', { // <-- 调用新地址
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -92,25 +83,26 @@ async function uploadFile(file) {
       content_type: file.type,
     }),
   });
+  if (!getUrlResponse.ok) {
+    const errorData = await getUrlResponse.json();
+    throw new Error(`获取上传URL失败: ${errorData.detail}`);
+  }
   const { upload_url, serving_url } = await getUrlResponse.json();
 
-  // 1b. 直接从浏览器上传文件到 Replicate 返回的URL
   await fetch(upload_url, {
     method: 'PUT',
     headers: { 'Content-Type': file.type },
     body: file,
   });
-
   return serving_url;
 }
 
-// 步骤 3: 通过我们的后端创建预测任务
 async function createPrediction(swapImageUrl, targetVideoUrl) {
-  const response = await fetch('/api/predictions', {
+  const response = await fetch('/api/handlePrediction', { // <-- 调用新地址
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      version: "11b6bf0f4e14d808f655e87e5448233cceff10a45f659d71539cafb7163b2e84",
+      version: "116bbf0f4e14d808f655e87e5448233cceff10a45f659d71539cafb7163b2e84",
       input: {
         swap_image: swapImageUrl,
         target_video: targetVideoUrl,
@@ -124,22 +116,17 @@ async function createPrediction(swapImageUrl, targetVideoUrl) {
   return prediction;
 }
 
-// 步骤 4: 通过我们的后端轮询任务状态
 async function pollPredictionStatus(prediction) {
   let currentPrediction = prediction;
-
   while (currentPrediction.status !== 'succeeded' && currentPrediction.status !== 'failed') {
-    await new Promise(resolve => setTimeout(resolve, 2000)); // 等待 2 秒
-
-    const response = await fetch(`/api/predictions?id=${currentPrediction.id}`);
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    const response = await fetch(`/api/handlePrediction?id=${currentPrediction.id}`); // <-- 调用新地址
     currentPrediction = await response.json();
-
     if (!response.ok) {
       throw new Error(currentPrediction.detail || '查询状态失败');
     }
     statusMessage.value = `任务状态: ${currentPrediction.status}...`;
   }
-
   if (currentPrediction.status === 'succeeded') {
     statusMessage.value = '换脸成功！';
     resultUrl.value = currentPrediction.output;
@@ -151,109 +138,4 @@ async function pollPredictionStatus(prediction) {
 
 <style>
 /* 样式部分保持不变 */
-#app-container {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  background-color: #f4f7f6;
-  color: #333;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  min-height: 100vh;
-  margin: 0;
-  padding: 20px;
-}
-.container {
-  background-color: #ffffff;
-  padding: 30px 40px;
-  border-radius: 12px;
-  box-shadow: 0 8px 30px rgba(0,0,0,0.1);
-  width: 100%;
-  max-width: 600px;
-}
-h1 {
-  text-align: center;
-  color: #1a1a1a;
-  margin-bottom: 10px;
-}
-p {
-  text-align: center;
-  color: #666;
-  margin-bottom: 30px;
-}
-.form-group {
-  margin-bottom: 25px;
-}
-label {
-  display: block;
-  margin-bottom: 8px;
-  font-weight: 600;
-  color: #555;
-}
-input[type="file"] {
-  width: 100%;
-  padding: 12px;
-  border: 1px solid #ccc;
-  border-radius: 6px;
-  box-sizing: border-box;
-  font-size: 16px;
-}
-button {
-  width: 100%;
-  padding: 15px;
-  background-color: #007bff;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  font-size: 18px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background-color 0.3s ease;
-}
-button:disabled {
-  background-color: #aaa;
-  cursor: not-allowed;
-}
-#status {
-  text-align: center;
-  margin-top: 25px;
-  font-size: 16px;
-  font-weight: 500;
-  color: #333;
-  min-height: 25px;
-}
-.loader {
-  border: 4px solid #f3f3f3;
-  border-top: 4px solid #007bff;
-  border-radius: 50%;
-  width: 25px;
-  height: 25px;
-  animation: spin 1s linear infinite;
-  margin: 20px auto;
-}
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
-#result {
-  margin-top: 30px;
-  text-align: center;
-}
-#result video {
-  max-width: 100%;
-  border-radius: 8px;
-  border: 1px solid #ddd;
-}
-#result a {
-  display: inline-block;
-  margin-top: 15px;
-  padding: 10px 20px;
-  background-color: #28a745;
-  color: white;
-  text-decoration: none;
-  border-radius: 6px;
-  font-weight: 500;
-}
-#result a:hover {
-  background-color: #218838;
-}
 </style>
