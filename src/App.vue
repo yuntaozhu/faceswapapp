@@ -20,7 +20,7 @@
 
       <div id="status">{{ statusMessage }}</div>
       <div class="loader" v-if="isLoading"></div>
-
+      
       <div id="result" v-if="resultUrl">
         <video controls :src="resultUrl"></video>
         <a :href="resultUrl" download="result.mp4">下载视频</a>
@@ -32,15 +32,12 @@
 <script setup>
 import { ref } from 'vue';
 
-// --- 响应式状态定义 ---
 const sourceImageFile = ref(null);
 const targetVideoFile = ref(null);
 const isLoading = ref(false);
 const statusMessage = ref('');
 const resultUrl = ref('');
 
-
-// --- 事件处理函数 ---
 const handleSourceImageUpload = (event) => {
   sourceImageFile.value = event.target.files[0];
 };
@@ -49,14 +46,12 @@ const handleTargetVideoUpload = (event) => {
   targetVideoFile.value = event.target.files[0];
 };
 
-
-// --- 核心业务逻辑 ---
 const startFaceSwap = async () => {
   if (!sourceImageFile.value || !targetVideoFile.value) {
     statusMessage.value = '错误：请同时上传源图片和目标视频。';
     return;
   }
-
+  
   isLoading.value = true;
   statusMessage.value = '准备开始...';
   resultUrl.value = '';
@@ -64,15 +59,16 @@ const startFaceSwap = async () => {
   try {
     statusMessage.value = '正在上传源图片...';
     const swapImageUrl = await uploadFile(sourceImageFile.value);
-
+    
     statusMessage.value = '正在上传目标视频...';
     const targetVideoUrl = await uploadFile(targetVideoFile.value);
-
-    statusMessage.value = '文件上传完成，正在创建任务...';
-    const prediction = await createPrediction(swapImageUrl, targetVideoUrl);
-
-    statusMessage.value = '任务已创建，正在处理中...';
-    await pollPredictionStatus(prediction);
+    
+    statusMessage.value = '文件上传完成，正在创建并等待任务完成... (这可能需要1-3分钟)';
+    const finalResult = await createPrediction(swapImageUrl, targetVideoUrl);
+    
+    statusMessage.value = '换脸成功！';
+    // Replicate 的输出是一个数组，我们取第一个元素
+    resultUrl.value = finalResult.output[0];
 
   } catch (error) {
     console.error(error);
@@ -82,13 +78,9 @@ const startFaceSwap = async () => {
   }
 };
 
-
-// --- API 交互函数 ---
-
 // 步骤 1 & 2: 获取上传URL，然后直接上传文件
 async function uploadFile(file) {
-  // 1a. 通过我们的后端安全地获取上传URL
-  const getUrlResponse = await fetch('/api/handleUpload', {
+  const getUrlResponse = await fetch('/api/handleUpload.cjs', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -96,179 +88,139 @@ async function uploadFile(file) {
       content_type: file.type,
     }),
   });
-
   if (!getUrlResponse.ok) {
-    const errorData = await getUrlResponse.json();
-    // 如果后端返回500错误，错误信息可能不是JSON格式
-    const detail = errorData ? errorData.detail : "服务器内部错误";
-    throw new Error(`获取上传URL失败: ${detail}`);
+      const errorData = await getUrlResponse.json();
+      throw new Error(`获取上传URL失败: ${errorData.detail}`);
   }
   const { upload_url, serving_url } = await getUrlResponse.json();
-
-  // 1b. 直接从浏览器上传文件到 Replicate 返回的URL
+  
   await fetch(upload_url, {
     method: 'PUT',
     headers: { 'Content-Type': file.type },
     body: file,
   });
-
   return serving_url;
 }
 
-// 步骤 3: 通过我们的后端创建预测任务
+// 步骤 3: 调用新的后端来创建并等待预测结果
 async function createPrediction(swapImageUrl, targetVideoUrl) {
-  const response = await fetch('/api/handlePrediction', {
+  const response = await fetch('/api/createPrediction.cjs', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      version: "116bbf0f4e14d808f655e87e5448233cceff10a45f659d71539cafb7163b2e84",
-      input: {
-        swap_image: swapImageUrl,
-        target_video: targetVideoUrl,
-      },
+      swap_image: swapImageUrl,
+      target_video: targetVideoUrl,
     }),
   });
-  const prediction = await response.json();
+  
+  const result = await response.json();
   if (!response.ok) {
-    throw new Error(prediction.detail || '创建任务失败');
+    throw new Error(result.detail || '创建预测任务失败');
   }
-  return prediction;
-}
-
-// 步骤 4: 通过我们的后端轮询任务状态
-async function pollPredictionStatus(prediction) {
-  let currentPrediction = prediction;
-  while (currentPrediction.status !== 'succeeded' && currentPrediction.status !== 'failed') {
-    await new Promise(resolve => setTimeout(resolve, 2000)); // 等待 2 秒
-
-    const response = await fetch(`/api/handlePrediction?id=${currentPrediction.id}`);
-    currentPrediction = await response.json();
-
-    if (!response.ok) {
-      throw new Error(currentPrediction.detail || '查询状态失败');
-    }
-    statusMessage.value = `任务状态: ${currentPrediction.status}...`;
-  }
-
-  if (currentPrediction.status === 'succeeded') {
-    statusMessage.value = '换脸成功！';
-    resultUrl.value = currentPrediction.output;
-  } else {
-    throw new Error(`任务失败: ${currentPrediction.error}`);
-  }
+  return result;
 }
 </script>
 
 <style>
-/* 将完整样式放回 App.vue 中，这是标准的 Vue 单文件组件做法 */
+/* 样式部分保持不变 */
 #app-container {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  background-color: #f4f7f6;
-  color: #333;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  min-height: 100vh;
-  margin: 0;
-  padding: 20px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background-color: #f4f7f6;
+    color: #333;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    margin: 0;
+    padding: 20px;
 }
 .container {
-  background-color: #ffffff;
-  padding: 30px 40px;
-  border-radius: 12px;
-  box-shadow: 0 8px 30px rgba(0,0,0,0.1);
-  width: 100%;
-  max-width: 600px;
-  text-align: center; /* 让内容居中 */
+    background-color: #ffffff;
+    padding: 30px 40px;
+    border-radius: 12px;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.1);
+    width: 100%;
+    max-width: 600px;
+    text-align: center;
 }
 h1 {
-  text-align: center;
-  color: #1a1a1a;
-  margin-bottom: 10px;
+    color: #1a1a1a;
+    margin-bottom: 10px;
 }
 p {
-  text-align: center;
-  color: #666;
-  margin-bottom: 30px;
+    color: #666;
+    margin-bottom: 30px;
 }
 .form-group {
-  margin-bottom: 25px;
-  text-align: left; /* 让标签和输入框左对齐 */
+    margin-bottom: 25px;
+    text-align: left;
 }
 label {
-  display: block;
-  margin-bottom: 8px;
-  font-weight: 600;
-  color: #555;
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 600;
+    color: #555;
 }
 input[type="file"] {
-  width: 100%;
-  padding: 12px;
-  border: 1px solid #ccc;
-  border-radius: 6px;
-  box-sizing: border-box;
-  font-size: 16px;
+    width: 100%;
+    padding: 12px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    box-sizing: border-box;
+    font-size: 16px;
 }
 button {
-  width: 100%;
-  padding: 15px;
-  background-color: #007bff;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  font-size: 18px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background-color 0.3s ease;
-}
-button:hover {
-  background-color: #0056b3;
+    width: 100%;
+    padding: 15px;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 18px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
 }
 button:disabled {
-  background-color: #aaa;
-  cursor: not-allowed;
+    background-color: #aaa;
+    cursor: not-allowed;
 }
 #status {
-  text-align: center;
-  margin-top: 25px;
-  font-size: 16px;
-  font-weight: 500;
-  color: #333;
-  min-height: 25px;
+    margin-top: 25px;
+    font-size: 16px;
+    font-weight: 500;
+    color: #333;
+    min-height: 25px;
 }
 .loader {
-  border: 4px solid #f3f3f3;
-  border-top: 4px solid #007bff;
-  border-radius: 50%;
-  width: 25px;
-  height: 25px;
-  animation: spin 1s linear infinite;
-  margin: 20px auto;
+    border: 4px solid #f3f3f3;
+    border-top: 4px solid #007bff;
+    border-radius: 50%;
+    width: 25px;
+    height: 25px;
+    animation: spin 1s linear infinite;
+    margin: 20px auto;
 }
 @keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
 }
 #result {
-  margin-top: 30px;
-  text-align: center;
+    margin-top: 30px;
 }
 #result video {
-  max-width: 100%;
-  border-radius: 8px;
-  border: 1px solid #ddd;
+    max-width: 100%;
+    border-radius: 8px;
+    border: 1px solid #ddd;
 }
 #result a {
-  display: inline-block;
-  margin-top: 15px;
-  padding: 10px 20px;
-  background-color: #28a745;
-  color: white;
-  text-decoration: none;
-  border-radius: 6px;
-  font-weight: 500;
-}
-#result a:hover {
-  background-color: #218838;
+    display: inline-block;
+    margin-top: 15px;
+    padding: 10px 20px;
+    background-color: #28a745;
+    color: white;
+    text-decoration: none;
+    border-radius: 6px;
+    font-weight: 500;
 }
 </style>
