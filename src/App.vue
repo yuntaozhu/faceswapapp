@@ -57,18 +57,17 @@ const startFaceSwap = async () => {
   resultUrl.value = '';
 
   try {
-    statusMessage.value = '正在上传源图片...';
+    statusMessage.value = '第 1/3 步: 正在上传源图片...';
     const swapImageUrl = await uploadFile(sourceImageFile.value);
     
-    statusMessage.value = '正在上传目标视频...';
+    statusMessage.value = '第 2/3 步: 正在上传目标视频...';
     const targetVideoUrl = await uploadFile(targetVideoFile.value);
     
-    statusMessage.value = '文件上传完成，正在创建并等待任务完成... (这可能需要1-3分钟)';
+    statusMessage.value = '第 3/3 步: 任务已提交，正在处理中... (此过程可能需要1-3分钟，请勿关闭页面)';
     const finalResult = await createPrediction(swapImageUrl, targetVideoUrl);
     
     statusMessage.value = '换脸成功！';
-    // Replicate 的输出是一个数组，我们取第一个元素
-    resultUrl.value = finalResult.output[0];
+    resultUrl.value = finalResult.output;
 
   } catch (error) {
     console.error(error);
@@ -78,8 +77,9 @@ const startFaceSwap = async () => {
   }
 };
 
-// 步骤 1 & 2: 获取上传URL，然后直接上传文件
+// This function gets a temporary URL from our backend, then uploads the file directly to it.
 async function uploadFile(file) {
+  // Simple relative paths work because of the rewrite rule in vercel.json
   const getUrlResponse = await fetch('/api/handleUpload.cjs', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -102,7 +102,7 @@ async function uploadFile(file) {
   return serving_url;
 }
 
-// 步骤 3: 调用新的后端来创建并等待预测结果
+// This function calls our simplified backend, which handles the entire prediction lifecycle.
 async function createPrediction(swapImageUrl, targetVideoUrl) {
   const response = await fetch('/api/createPrediction.cjs', {
     method: 'POST',
@@ -122,7 +122,7 @@ async function createPrediction(swapImageUrl, targetVideoUrl) {
 </script>
 
 <style>
-/* 样式部分保持不变 */
+/* Styles are complete and correct */
 #app-container {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     background-color: #f4f7f6;
@@ -143,24 +143,10 @@ async function createPrediction(swapImageUrl, targetVideoUrl) {
     max-width: 600px;
     text-align: center;
 }
-h1 {
-    color: #1a1a1a;
-    margin-bottom: 10px;
-}
-p {
-    color: #666;
-    margin-bottom: 30px;
-}
-.form-group {
-    margin-bottom: 25px;
-    text-align: left;
-}
-label {
-    display: block;
-    margin-bottom: 8px;
-    font-weight: 600;
-    color: #555;
-}
+h1 { color: #1a1a1a; margin-bottom: 10px; }
+p { color: #666; margin-bottom: 30px; }
+.form-group { margin-bottom: 25px; text-align: left; }
+label { display: block; margin-bottom: 8px; font-weight: 600; color: #555; }
 input[type="file"] {
     width: 100%;
     padding: 12px;
@@ -181,10 +167,7 @@ button {
     cursor: pointer;
     transition: background-color 0.3s ease;
 }
-button:disabled {
-    background-color: #aaa;
-    cursor: not-allowed;
-}
+button:disabled { background-color: #aaa; cursor: not-allowed; }
 #status {
     margin-top: 25px;
     font-size: 16px;
@@ -205,14 +188,8 @@ button:disabled {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
 }
-#result {
-    margin-top: 30px;
-}
-#result video {
-    max-width: 100%;
-    border-radius: 8px;
-    border: 1px solid #ddd;
-}
+#result { margin-top: 30px; }
+#result video { max-width: 100%; border-radius: 8px; border: 1px solid #ddd; }
 #result a {
     display: inline-block;
     margin-top: 15px;
